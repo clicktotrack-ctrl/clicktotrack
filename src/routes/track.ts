@@ -6,10 +6,13 @@ import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
-// Configure Redis connection for BullMQ Queue Producer
+// Configure Redis connection with SSL support for DigitalOcean Managed Redis
 const redisUrl = process.env.REDIS_URL;
 const connection = redisUrl
-  ? new Redis(redisUrl, { maxRetriesPerRequest: null, tls: redisUrl.startsWith('rediss://') ? {} : undefined })
+  ? new Redis(redisUrl, {
+      maxRetriesPerRequest: null,
+      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+    })
   : new Redis({
       host: process.env.REDIS_HOST || '127.0.0.1',
       port: Number(process.env.REDIS_PORT) || 6379,
@@ -76,7 +79,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'Missing required fields: siteId and eventName' });
       }
 
-      // 1. Verify workspace exists
+      // 1. Verify workspace exists in PostgreSQL
       const workspace = await prisma.workspace.findUnique({
         where: { siteId },
       });
@@ -129,9 +132,11 @@ export async function trackRoutes(fastify: FastifyInstance) {
         eventId: conversion.eventId,
         status: conversion.status,
       });
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.status(500).send({ error: 'Internal Server Error processing tracking event' });
+    } catch (error: any) {
+      fastify.log.error(`[Track Error]: ${error?.message || error}`);
+      return reply.status(500).send({
+        error: 'Internal Server Error processing tracking event',
+        details: process.env.NODE_ENV !== 'production' ? error?.message : undefined,
+      });
     }
   });
-}
