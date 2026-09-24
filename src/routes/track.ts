@@ -6,12 +6,14 @@ import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
-// Configure Redis connection with SSL support and offline queue disabling to prevent hanging
 const redisUrl = process.env.REDIS_URL;
+
+console.log('[Init] REDIS_URL configured:', redisUrl ? 'YES (URL provided)' : 'NO (Missing REDIS_URL env var)');
+
 const connection = redisUrl
   ? new Redis(redisUrl, {
       maxRetriesPerRequest: null,
-      enableOfflineQueue: false, // Prevents hanging requests if Redis is offline
+      enableOfflineQueue: false, // Prevents hanging if Redis is offline
       connectTimeout: 5000,
       tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     })
@@ -22,6 +24,14 @@ const connection = redisUrl
       enableOfflineQueue: false,
       connectTimeout: 5000,
     });
+
+connection.on('error', (err) => {
+  console.error('[Redis Client Error]:', err.message);
+});
+
+connection.on('connect', () => {
+  console.log('[Redis Client] Successfully connected to Redis!');
+});
 
 export const conversionQueue = new Queue('conversion-queue', { connection });
 
@@ -119,29 +129,43 @@ export async function trackRoutes(fastify: FastifyInstance) {
       });
       console.log('[Track Debug] Step 2 Success: Event ID =', conversion.eventId);
 
-      // 5. Enqueue job into BullMQ
+      // 5. Enqueue job into BullMQ with a 3-second safeguard timeout
       console.log('[Track Debug] Step 3: Adding job to BullMQ Redis Queue...');
-      await conversionQueue.add('dispatch-conversion', {
-        conversionId: conversion.id,
-        eventId: conversion.eventId,
-        workspaceId: workspace.id,
-        eventName,
-        gclid,
-        fbclid,
-        msclkid,
-        emailHash,
-        phoneHash,
-        clientId,
-        sessionId,
-      });
-      console.log('[Track Debug] Step 3 Success: Enqueued into Redis!');
 
-      fastify.log.info(`[Track] Conversion event logged & queued: ${eventId} (${eventName})`);
+      let queuedInRedis = false;
+      try {
+        const queuePromise = conversionQueue.add('dispatch-conversion', {
+          conversionId: conversion.id,
+          eventId: conversion.eventId,
+          workspaceId: workspace.id,
+          eventName,
+          gclid,
+          fbclid,
+          msclkid,
+          emailHash,
+          phoneHash,
+          clientId,
+          sessionId,
+        });
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Redis enqueue timed out after 3000ms')), 3000)
+        );
+
+        await Promise.race([queuePromise, timeoutPromise]);
+        queuedInRedis = true;
+        console.log('[Track Debug] Step 3 Success: Enqueued into Redis!');
+      } catch (queueErr: any) {
+        console.error('[Track Debug] Step 3 Failed/Timed out:', queueErr.message);
+      }
+
+      fastify.log.info(`[Track] Conversion event logged: ${eventId} (${eventName})`);
 
       return reply.status(200).send({
         success: true,
         eventId: conversion.eventId,
         status: conversion.status,
+        redisQueued: queuedInRedis,
       });
     } catch (error: any) {
       console.error('[Track Fatal Error]:', error);
