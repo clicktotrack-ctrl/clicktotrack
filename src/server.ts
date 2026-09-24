@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { trackRoutes } from './routes/track';
+import { scriptRoutes } from './routes/script';
 
 const server = Fastify({
   logger: true,
@@ -11,8 +12,9 @@ server.register(cors, {
   origin: '*',
 });
 
-// Register Tracking API Routes
+// Register Routes
 server.register(trackRoutes);
+server.register(scriptRoutes);
 
 // Health check endpoint for DigitalOcean readiness probes
 server.get('/health', async (request, reply) => {
@@ -27,7 +29,6 @@ server.get('/', async (request, reply) => {
 const start = async () => {
   try {
     const port = Number(process.env.PORT) || 3000;
-    // CRITICAL: Bind to 0.0.0.0 for DigitalOcean container network interface
     await server.listen({ port, host: '0.0.0.0' });
     console.log(`Server listening on http://0.0.0.0:${port}`);
   } catch (err) {
