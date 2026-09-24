@@ -1,0 +1,70 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Organization {
+  id         String      @id @default(uuid())
+  name       String
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  workspaces Workspace[]
+}
+
+model Workspace {
+  id          String   @id @default(uuid())
+  orgId       String
+  domain      String   @unique
+  cnameDomain String?  @unique
+  siteId      String   @unique @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  goals        Goal[]
+  conversions  ConversionEvent[]
+  exclusions   ExclusionList[]
+}
+
+model Goal {
+  id                String   @id @default(uuid())
+  workspaceId       String
+  title             String
+  category          String
+  selectorCss       String?
+  selectorXpath     String?
+  isNewCustomerOnly Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model ConversionEvent {
+  id          String   @id @default(uuid())
+  workspaceId String
+  eventId     String   @unique
+  eventName   String
+  gclid       String?
+  fbclid      String?
+  msclkid     String?
+  emailHash   String?
+  phoneHash   String?
+  status      String   @default("QUEUED")
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model ExclusionList {
+  id          String   @id @default(uuid())
+  workspaceId String
+  emailHash   String?
+  phoneHash   String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
