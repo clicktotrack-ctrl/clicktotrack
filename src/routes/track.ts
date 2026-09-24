@@ -1,39 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
-import { Queue } from 'bullmq';
-import Redis from 'ioredis';
 import crypto from 'crypto';
 
 const prisma = new PrismaClient();
-
-const redisUrl = process.env.REDIS_URL;
-
-console.log('[Init] REDIS_URL configured:', redisUrl ? 'YES (URL provided)' : 'NO (Missing REDIS_URL env var)');
-
-const connection = redisUrl
-  ? new Redis(redisUrl, {
-      maxRetriesPerRequest: null,
-      enableOfflineQueue: false, // Prevents hanging if Redis is offline
-      connectTimeout: 5000,
-      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
-    })
-  : new Redis({
-      host: process.env.REDIS_HOST || '127.0.0.1',
-      port: Number(process.env.REDIS_PORT) || 6379,
-      maxRetriesPerRequest: null,
-      enableOfflineQueue: false,
-      connectTimeout: 5000,
-    });
-
-connection.on('error', (err) => {
-  console.error('[Redis Client Error]:', err.message);
-});
-
-connection.on('connect', () => {
-  console.log('[Redis Client] Successfully connected to Redis!');
-});
-
-export const conversionQueue = new Queue('conversion-queue', { connection });
 
 interface TrackPayload {
   siteId: string;
@@ -76,7 +45,6 @@ function hashPII(value?: string, type: 'email' | 'phone' = 'email'): string | un
 
 export async function trackRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/track', async (request: FastifyRequest<{ Body: TrackPayload }>, reply: FastifyReply) => {
-    console.log('[Track Debug] Request received:', request.body);
     try {
       const {
         siteId,
@@ -95,11 +63,9 @@ export async function trackRoutes(fastify: FastifyInstance) {
       }
 
       // 1. Verify workspace exists in PostgreSQL
-      console.log('[Track Debug] Step 1: Querying Prisma workspace...');
       const workspace = await prisma.workspace.findUnique({
         where: { siteId },
       });
-      console.log('[Track Debug] Step 1 Success: Workspace ID =', workspace?.id || 'NOT FOUND');
 
       if (!workspace) {
         return reply.status(404).send({ error: 'Invalid siteId or workspace not found' });
@@ -112,8 +78,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
       // 3. Generate unique event ID
       const eventId = `evt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-      // 4. Store Conversion Event in PostgreSQL
-      console.log('[Track Debug] Step 2: Creating ConversionEvent in Prisma...');
+      // 4. Store Conversion Event directly in PostgreSQL queue
       const conversion = await prisma.conversionEvent.create({
         data: {
           workspaceId: workspace.id,
@@ -127,48 +92,15 @@ export async function trackRoutes(fastify: FastifyInstance) {
           status: 'QUEUED',
         },
       });
-      console.log('[Track Debug] Step 2 Success: Event ID =', conversion.eventId);
 
-      // 5. Enqueue job into BullMQ with a 3-second safeguard timeout
-      console.log('[Track Debug] Step 3: Adding job to BullMQ Redis Queue...');
-
-      let queuedInRedis = false;
-      try {
-        const queuePromise = conversionQueue.add('dispatch-conversion', {
-          conversionId: conversion.id,
-          eventId: conversion.eventId,
-          workspaceId: workspace.id,
-          eventName,
-          gclid,
-          fbclid,
-          msclkid,
-          emailHash,
-          phoneHash,
-          clientId,
-          sessionId,
-        });
-
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Redis enqueue timed out after 3000ms')), 3000)
-        );
-
-        await Promise.race([queuePromise, timeoutPromise]);
-        queuedInRedis = true;
-        console.log('[Track Debug] Step 3 Success: Enqueued into Redis!');
-      } catch (queueErr: any) {
-        console.error('[Track Debug] Step 3 Failed/Timed out:', queueErr.message);
-      }
-
-      fastify.log.info(`[Track] Conversion event logged: ${eventId} (${eventName})`);
+      fastify.log.info(`[Track] Conversion event saved to PostgreSQL queue: ${eventId} (${eventName})`);
 
       return reply.status(200).send({
         success: true,
         eventId: conversion.eventId,
         status: conversion.status,
-        redisQueued: queuedInRedis,
       });
     } catch (error: any) {
-      console.error('[Track Fatal Error]:', error);
       fastify.log.error(`[Track Error]: ${error?.message || error}`);
       return reply.status(500).send({
         error: 'Internal Server Error processing tracking event',
