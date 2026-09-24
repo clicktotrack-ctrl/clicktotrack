@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { trackRoutes } from './routes/track';
 
 const server = Fastify({
   logger: true,
@@ -9,6 +10,9 @@ const server = Fastify({
 server.register(cors, {
   origin: '*',
 });
+
+// Register Tracking API Routes
+server.register(trackRoutes);
 
 // Health check endpoint for DigitalOcean readiness probes
 server.get('/health', async (request, reply) => {
