@@ -1,8 +1,22 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
+import { Queue } from 'bullmq';
+import Redis from 'ioredis';
 import crypto from 'crypto';
 
 const prisma = new PrismaClient();
+
+// Configure Redis connection for BullMQ Queue Producer
+const redisUrl = process.env.REDIS_URL;
+const connection = redisUrl
+  ? new Redis(redisUrl, { maxRetriesPerRequest: null, tls: redisUrl.startsWith('rediss://') ? {} : undefined })
+  : new Redis({
+      host: process.env.REDIS_HOST || '127.0.0.1',
+      port: Number(process.env.REDIS_PORT) || 6379,
+      maxRetriesPerRequest: null,
+    });
+
+export const conversionQueue = new Queue('conversion-queue', { connection });
 
 interface TrackPayload {
   siteId: string;
@@ -28,14 +42,12 @@ function hashPII(value?: string, type: 'email' | 'phone' = 'email'): string | un
     const parts = normalized.split('@');
     if (parts.length === 2) {
       let [username, domain] = parts;
-      // Strip period dots from Gmail usernames before domain
       if (domain === 'gmail.com' || domain === 'googlemail.com') {
         username = username.replace(/\./g, '');
       }
       normalized = `${username}@${domain}`;
     }
   } else if (type === 'phone') {
-    // Strip non-digits and ensure + E.164 prefix
     normalized = normalized.replace(/\D/g, '');
     if (!normalized.startsWith('+') && normalized.length === 10) {
       normalized = `+1${normalized}`;
@@ -58,7 +70,6 @@ export async function trackRoutes(fastify: FastifyInstance) {
         phone,
         clientId,
         sessionId,
-        url,
       } = request.body;
 
       if (!siteId || !eventName) {
@@ -74,7 +85,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Invalid siteId or workspace not found' });
       }
 
-      // 2. Hash user PII for Enhanced Conversions / Advanced Matching
+      // 2. Hash user PII
       const emailHash = hashPII(email, 'email');
       const phoneHash = hashPII(phone, 'phone');
 
@@ -96,7 +107,22 @@ export async function trackRoutes(fastify: FastifyInstance) {
         },
       });
 
-      fastify.log.info(`[Track] Conversion event logged: ${eventId} (${eventName}) for Workspace: ${workspace.id}`);
+      // 5. Enqueue job into BullMQ for background worker processing
+      await conversionQueue.add('dispatch-conversion', {
+        conversionId: conversion.id,
+        eventId: conversion.eventId,
+        workspaceId: workspace.id,
+        eventName,
+        gclid,
+        fbclid,
+        msclkid,
+        emailHash,
+        phoneHash,
+        clientId,
+        sessionId,
+      });
+
+      fastify.log.info(`[Track] Conversion event logged & queued: ${eventId} (${eventName})`);
 
       return reply.status(200).send({
         success: true,
