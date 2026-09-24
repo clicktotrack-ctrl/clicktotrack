@@ -1,3 +1,4 @@
+Paste this complete code into src/routes/track.ts:
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { Queue } from 'bullmq';
@@ -66,6 +67,7 @@ function hashPII(value?: string, type: 'email' | 'phone' = 'email'): string | un
 
 export async function trackRoutes(fastify: FastifyInstance) {
   fastify.post('/api/v1/track', async (request: FastifyRequest<{ Body: TrackPayload }>, reply: FastifyReply) => {
+    console.log('[Track Debug] Request received:', request.body);
     try {
       const {
         siteId,
@@ -84,9 +86,11 @@ export async function trackRoutes(fastify: FastifyInstance) {
       }
 
       // 1. Verify workspace exists in PostgreSQL
+      console.log('[Track Debug] Step 1: Querying Prisma workspace...');
       const workspace = await prisma.workspace.findUnique({
         where: { siteId },
       });
+      console.log('[Track Debug] Step 1 Success: Workspace ID =', workspace?.id || 'NOT FOUND');
 
       if (!workspace) {
         return reply.status(404).send({ error: 'Invalid siteId or workspace not found' });
@@ -100,6 +104,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
       const eventId = `evt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
       // 4. Store Conversion Event in PostgreSQL
+      console.log('[Track Debug] Step 2: Creating ConversionEvent in Prisma...');
       const conversion = await prisma.conversionEvent.create({
         data: {
           workspaceId: workspace.id,
@@ -113,8 +118,10 @@ export async function trackRoutes(fastify: FastifyInstance) {
           status: 'QUEUED',
         },
       });
+      console.log('[Track Debug] Step 2 Success: Event ID =', conversion.eventId);
 
-      // 5. Enqueue job into BullMQ for background worker processing
+      // 5. Enqueue job into BullMQ
+      console.log('[Track Debug] Step 3: Adding job to BullMQ Redis Queue...');
       await conversionQueue.add('dispatch-conversion', {
         conversionId: conversion.id,
         eventId: conversion.eventId,
@@ -128,6 +135,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
         clientId,
         sessionId,
       });
+      console.log('[Track Debug] Step 3 Success: Enqueued into Redis!');
 
       fastify.log.info(`[Track] Conversion event logged & queued: ${eventId} (${eventName})`);
 
@@ -137,6 +145,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
         status: conversion.status,
       });
     } catch (error: any) {
+      console.error('[Track Fatal Error]:', error);
       fastify.log.error(`[Track Error]: ${error?.message || error}`);
       return reply.status(500).send({
         error: 'Internal Server Error processing tracking event',
