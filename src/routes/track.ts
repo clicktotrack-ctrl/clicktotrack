@@ -1,4 +1,3 @@
-Paste this complete code into src/routes/track.ts:
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { Queue } from 'bullmq';
