@@ -25,11 +25,14 @@ function hashPII(value?: string, type: 'email' | 'phone' = 'email'): string | un
   let normalized = value.trim().toLowerCase();
 
   if (type === 'email') {
-    // Strip period dots from gmail addresses before domain
     const parts = normalized.split('@');
-    if (parts.length === 2 && (parts === 'gmail.com' || parts === 'googlemail.com')) {
-      parts = parts.replace(/\./g, '');
-      normalized = parts.join('@');
+    if (parts.length === 2) {
+      let [username, domain] = parts;
+      // Strip period dots from Gmail usernames before domain
+      if (domain === 'gmail.com' || domain === 'googlemail.com') {
+        username = username.replace(/\./g, '');
+      }
+      normalized = `${username}@${domain}`;
     }
   } else if (type === 'phone') {
     // Strip non-digits and ensure + E.164 prefix
