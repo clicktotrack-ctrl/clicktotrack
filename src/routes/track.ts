@@ -6,17 +6,21 @@ import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
-// Configure Redis connection with SSL support for DigitalOcean Managed Redis
+// Configure Redis connection with SSL support and offline queue disabling to prevent hanging
 const redisUrl = process.env.REDIS_URL;
 const connection = redisUrl
   ? new Redis(redisUrl, {
       maxRetriesPerRequest: null,
+      enableOfflineQueue: false, // Prevents hanging requests if Redis is offline
+      connectTimeout: 5000,
       tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     })
   : new Redis({
       host: process.env.REDIS_HOST || '127.0.0.1',
       port: Number(process.env.REDIS_PORT) || 6379,
       maxRetriesPerRequest: null,
+      enableOfflineQueue: false,
+      connectTimeout: 5000,
     });
 
 export const conversionQueue = new Queue('conversion-queue', { connection });
@@ -73,7 +77,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
         phone,
         clientId,
         sessionId,
-      } = request.body;
+      } = request.body || {};
 
       if (!siteId || !eventName) {
         return reply.status(400).send({ error: 'Missing required fields: siteId and eventName' });
@@ -136,7 +140,7 @@ export async function trackRoutes(fastify: FastifyInstance) {
       fastify.log.error(`[Track Error]: ${error?.message || error}`);
       return reply.status(500).send({
         error: 'Internal Server Error processing tracking event',
-        details: process.env.NODE_ENV !== 'production' ? error?.message : undefined,
+        details: error?.message || String(error),
       });
     }
   });
