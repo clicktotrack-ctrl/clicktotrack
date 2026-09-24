@@ -1,0 +1,8 @@
+node\_modules/
+.env
+.env.local
+dist/
+build/
+.DS\_Store
+coverage/
+*.log

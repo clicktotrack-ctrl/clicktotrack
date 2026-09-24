@@ -1,0 +1,56 @@
+name: clicktotrack
+region: nyc
+features:
+\- buildpack-stack=ubuntu-22
+
+databases:
+\- name: clicktotrack-redis
+engine: REDIS
+production: false
+version: "7"
+
+services:
+\- name: api
+github:
+branch: main
+deploy\_on\_push: true
+dockerfile\_path: Dockerfile.api
+http\_port: 3000
+instance\_count: 1
+instance\_size\_slug: basic-s
+envs:
+\- key: NODE\_ENV
+value: production
+\- key: PORT
+value: "3000"
+\- key: REDIS\_URL
+value: ${clicktotrack-redis.REDIS\_URL}
+
+workers:
+\- name: worker
+github:
+branch: main
+deploy\_on\_push: true
+dockerfile\_path: Dockerfile.api
+instance\_count: 1
+instance\_size\_slug: basic-s
+run\_command: npm run start:worker
+envs:
+\- key: NODE\_ENV
+value: production
+\- key: REDIS\_URL
+value: ${clicktotrack-redis.REDIS\_URL}
+
+\- name: playwright-worker
+github:
+branch: main
+deploy\_on\_push: true
+dockerfile\_path: Dockerfile.playwright
+instance\_count: 1
+instance\_size\_slug: basic-m
+run\_command: npm run start:playwright
+envs:
+\- key: NODE\_ENV
+value: production
+\- key: REDIS\_URL
+value: ${clicktotrack-redis.REDIS_URL}
