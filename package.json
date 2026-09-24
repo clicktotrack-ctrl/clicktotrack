@@ -1,17 +1,28 @@
 {
+  "name": "clicktotrack",
+  "version": "1.0.0",
+  "description": "ClicktoTrack Conversion Tracking SaaS Engine",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:worker": "node dist/worker.js",
+    "start:playwright": "node dist/playwright-worker.js",
+    "dev": "nodemon --watch src -e ts --exec ts-node src/server.ts"
+  },
   "dependencies": {
-    "@fastify/cors": "^11.3.0",
-    "@prisma/client": "^7.10.0",
-    "bullmq": "^6.3.8",
-    "dotenv": "^18.0.3",
-    "fastify": "^5.12.5",
-    "ioredis": "^6.0.0"
+    "@fastify/cors": "^9.0.1",
+    "@prisma/client": "^5.19.1",
+    "bullmq": "^5.12.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1",
+    "ioredis": "^5.4.1"
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
-    "nodemon": "^3.1.14",
-    "prisma": "^8.0.0-rc.15",
+    "@types/node": "^22.5.5",
+    "nodemon": "^3.1.4",
+    "prisma": "^5.19.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.6.2"
   }
 }

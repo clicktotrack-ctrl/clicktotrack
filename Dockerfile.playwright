@@ -1,0 +1,16 @@
+(In VS Code: Create a file named Dockerfile.playwright in your root folder)
+FROM mcr.microsoft.com/playwright:v1.47.0-jammy
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY prisma ./prisma/
+
+RUN npm ci
+
+COPY . .
+
+RUN npx prisma generate
+RUN npm run build
+
+CMD ["npm", "run", "start:playwright"]

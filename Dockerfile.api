@@ -1,0 +1,23 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package management files and prisma schema
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Install dependencies
+RUN npm ci
+
+# Copy application source code
+COPY . .
+
+# Generate Prisma client and compile TypeScript
+RUN npx prisma generate
+RUN npm run build
+
+# Expose HTTP port
+EXPOSE 3000
+
+# Default start command
+CMD ["npm", "start"]
